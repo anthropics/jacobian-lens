@@ -68,15 +68,46 @@ class JacobianLens:
         """Load a lens previously written by :meth:`save`."""
         checkpoint = torch.load(path, map_location="cpu", weights_only=True)
         if "J" not in checkpoint:
+            hint = (
+                "; this is a fit() resume checkpoint, load it with "
+                "JacobianLens.from_fit_checkpoint()"
+                if "jacobian_sum" in checkpoint
+                else ""
+            )
             raise ValueError(
                 f"{path} is not a JacobianLens file "
-                f"(found keys {sorted(checkpoint)!r}; a fit() checkpoint?)"
+                f"(found keys {sorted(checkpoint)!r}{hint})"
             )
         return cls(
             jacobians=checkpoint["J"],
             n_prompts=checkpoint["n_prompts"],
             d_model=checkpoint["d_model"],
         )
+
+    @classmethod
+    def from_fit_checkpoint(cls, path: str) -> JacobianLens:
+        """Build a lens from a resume checkpoint written by
+        :func:`jlens.fitting.fit` (``checkpoint_path=...``).
+
+        The checkpoint stores the running ``jacobian_sum`` over the prompts
+        processed so far; dividing by ``n_done`` gives the same mean that
+        :func:`~jlens.fitting.fit` returns, so a lens built from a partial run
+        is simply one averaged over fewer prompts. Useful when a fit was
+        interrupted, or for checkpoint files shared in this format (e.g. on
+        the HuggingFace Hub, after ``hf_hub_download``)."""
+        state = torch.load(path, map_location="cpu", weights_only=True)
+        if "jacobian_sum" not in state:
+            raise ValueError(
+                f"{path} is not a fit() checkpoint "
+                f"(found keys {sorted(state)!r}); for files written by "
+                f"save(), use JacobianLens.load()"
+            )
+        n_done = state["n_done"]
+        if n_done == 0:
+            raise ValueError(f"{path} contains no fitted prompts (n_done=0)")
+        jacobians = {layer: J / n_done for layer, J in state["jacobian_sum"].items()}
+        d_model = next(iter(jacobians.values())).shape[0]
+        return cls(jacobians=jacobians, n_prompts=n_done, d_model=d_model)
 
     @classmethod
     def from_pretrained(

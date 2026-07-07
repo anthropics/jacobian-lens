@@ -203,6 +203,37 @@ def test_fit_checkpoint_resume(tmp_path):
         torch.testing.assert_close(resumed.jacobians[layer], full.jacobians[layer])
 
 
+def test_from_fit_checkpoint(tmp_path):
+    """A lens built from a fit() checkpoint equals the lens fit() returns."""
+    model = TinyDecoder(n_layers=4, d_model=8)
+    prompts = ["abcdefghij " * 5, "klmnopqrst " * 5]
+    checkpoint = str(tmp_path / "ckpt.pt")
+
+    full = fit(
+        model,
+        prompts,
+        source_layers=[0, 2],
+        dim_batch=4,
+        max_seq_len=64,
+        checkpoint_path=checkpoint,
+    )
+    lens = JacobianLens.from_fit_checkpoint(checkpoint)
+    assert lens.n_prompts == full.n_prompts == 2
+    assert lens.source_layers == [0, 2]
+    assert lens.d_model == 8
+    for layer in [0, 2]:
+        torch.testing.assert_close(lens.jacobians[layer], full.jacobians[layer])
+
+    # load() rejects the checkpoint and points at from_fit_checkpoint().
+    with pytest.raises(ValueError, match="from_fit_checkpoint"):
+        JacobianLens.load(checkpoint)
+    # from_fit_checkpoint() rejects a save() file and points back at load().
+    saved = tmp_path / "lens.pt"
+    full.save(str(saved))
+    with pytest.raises(ValueError, match="not a fit\\(\\) checkpoint"):
+        JacobianLens.from_fit_checkpoint(str(saved))
+
+
 def test_fit_resume_after_skip(tmp_path):
     """Resume after a too-short prompt was skipped must not double-count.
 
