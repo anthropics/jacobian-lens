@@ -12,3 +12,10 @@ dist/
 *.pt
 slice*.html
 slices/
+
+# Local Hugging Face models
+models/
+
+# Generated artifacts
+artifacts/
+results/
