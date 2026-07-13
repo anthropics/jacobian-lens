@@ -41,6 +41,7 @@ class JacobianLens:
         self.source_layers = sorted(self.jacobians)
         self.n_prompts = n_prompts
         self.d_model = d_model
+        self._device_cache: dict[tuple[int, str], torch.Tensor] = {}
 
     def __repr__(self) -> str:
         return (
@@ -139,8 +140,63 @@ class JacobianLens:
             residual: Tensor of shape ``[..., d_model]``.
             layer: Source layer index (must be in :attr:`source_layers`).
         """
-        J_bar = self.jacobians[layer].to(residual.device)
+        source = self.jacobians[layer]
+        if source.device == residual.device:
+            J_bar = source
+        else:
+            cache_key = (layer, str(residual.device))
+            J_bar = self._device_cache.get(cache_key)
+            if J_bar is None:
+                J_bar = source.to(residual.device)
+                self._device_cache[cache_key] = J_bar
         return residual @ J_bar.T
+
+    def _capture_residuals(
+        self,
+        model: LensModel,
+        prompt: str,
+        *,
+        layers: Sequence[int] | None,
+        positions: Sequence[int] | None,
+        max_seq_len: int,
+        require_fitted: bool,
+    ) -> tuple[list[int], dict[int, torch.Tensor], torch.Tensor]:
+        """Capture requested and final-layer residuals with one forward pass."""
+        resolved_layers = list(self.source_layers if layers is None else layers)
+        out_of_range = sorted(
+            layer
+            for layer in set(resolved_layers)
+            if not 0 <= layer < model.n_layers
+        )
+        if out_of_range:
+            raise ValueError(
+                f"layers {out_of_range} out of range for a "
+                f"{model.n_layers}-layer model"
+            )
+        unknown = set(resolved_layers) - set(self.source_layers)
+        if require_fitted and unknown:
+            raise ValueError(
+                f"layers {sorted(unknown)} not in source_layers; "
+                f"fitted layers are {self.source_layers}"
+            )
+
+        final_layer = model.n_layers - 1
+        record_at = sorted(set(resolved_layers) | {final_layer})
+        input_ids = model.encode(prompt, max_length=max_seq_len)
+        with ActivationRecorder(model.layers, at=record_at) as recorder:
+            model.forward(input_ids)
+            activations = {
+                layer: recorder.activations[layer].detach()
+                for layer in record_at
+            }
+
+        def select(layer: int) -> torch.Tensor:
+            full = activations[layer][0]
+            selected = full if positions is None else full[list(positions)]
+            return selected.float()
+
+        residuals = {layer: select(layer) for layer in record_at}
+        return resolved_layers, residuals, input_ids
 
     @torch.no_grad()
     def apply(
@@ -179,38 +235,64 @@ class JacobianLens:
             ValueError: If any requested layer is out of range for the model,
                 or (with ``use_jacobian``) not in :attr:`source_layers`.
         """
-        if layers is None:
-            layers = self.source_layers
-        out_of_range = sorted(l for l in set(layers) if not 0 <= l < model.n_layers)
-        if out_of_range:
-            raise ValueError(
-                f"layers {out_of_range} out of range for a {model.n_layers}-layer model"
-            )
-        unknown = set(layers) - set(self.source_layers)
-        if use_jacobian and unknown:
-            raise ValueError(
-                f"layers {sorted(unknown)} not in source_layers; "
-                f"fitted layers are {self.source_layers}"
-            )
-        final_layer = model.n_layers - 1
-        record_at = sorted(set(layers) | {final_layer})
-
-        input_ids = model.encode(prompt, max_length=max_seq_len)
-        with ActivationRecorder(model.layers, at=record_at) as recorder:
-            model.forward(input_ids)
-            activations = {i: recorder.activations[i].detach() for i in record_at}
-
-        def select(layer: int) -> torch.Tensor:
-            """Residuals at the requested positions: ``[n_positions, d_model]``."""
-            full = activations[layer][0]  # [seq_len, d_model]
-            return (full if positions is None else full[list(positions)]).float()
+        layers, residuals, input_ids = self._capture_residuals(
+            model,
+            prompt,
+            layers=layers,
+            positions=positions,
+            max_seq_len=max_seq_len,
+            require_fitted=use_jacobian,
+        )
 
         lens_logits: dict[int, torch.Tensor] = {}
         for layer in layers:
-            residual = select(layer)
+            residual = residuals[layer]
             if use_jacobian:
                 residual = self.transport(residual, layer)
             lens_logits[layer] = model.unembed(residual).float().cpu()
 
-        model_logits = model.unembed(select(final_layer)).float().cpu()
+        final_layer = model.n_layers - 1
+        model_logits = model.unembed(residuals[final_layer]).float().cpu()
         return lens_logits, model_logits, input_ids
+
+    @torch.no_grad()
+    def apply_comparison(
+        self,
+        model: LensModel,
+        prompt: str,
+        *,
+        layers: Sequence[int] | None = None,
+        positions: Sequence[int] | None = None,
+        max_seq_len: int = 512,
+    ) -> tuple[
+        dict[int, torch.Tensor],
+        dict[int, torch.Tensor],
+        torch.Tensor,
+        torch.Tensor,
+    ]:
+        """Return J-lens, logit-lens and model-final logits in one forward.
+
+        This is the efficient comparison path for evaluation pipelines. It
+        avoids running the decoder twice merely to compare transported and
+        untransported residuals.
+        """
+        layers, residuals, input_ids = self._capture_residuals(
+            model,
+            prompt,
+            layers=layers,
+            positions=positions,
+            max_seq_len=max_seq_len,
+            require_fitted=True,
+        )
+
+        jlens_logits: dict[int, torch.Tensor] = {}
+        logit_lens_logits: dict[int, torch.Tensor] = {}
+        for layer in layers:
+            residual = residuals[layer]
+            transported = self.transport(residual, layer)
+            jlens_logits[layer] = model.unembed(transported).float().cpu()
+            logit_lens_logits[layer] = model.unembed(residual).float().cpu()
+
+        final_layer = model.n_layers - 1
+        model_logits = model.unembed(residuals[final_layer]).float().cpu()
+        return jlens_logits, logit_lens_logits, model_logits, input_ids

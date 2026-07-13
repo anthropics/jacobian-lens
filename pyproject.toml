@@ -22,6 +22,14 @@ Paper = "https://transformer-circuits.pub/2026/workspace/index.html"
 
 [project.optional-dependencies]
 dev = ["pytest", "ruff", "datasets"]
+research = [
+    "datasets",
+    "jupyterlab",
+    "nbclient",
+    "nbformat",
+    "pandas",
+    "scikit-learn",
+]
 
 [tool.ruff]
 line-length = 88
@@ -32,7 +40,7 @@ select = ["E", "F", "W", "I", "B", "UP"]
 ignore = ["E501", "E741"]
 
 [tool.setuptools]
-packages = ["jlens"]
+packages = ["jlens", "jlens.security"]
 
 [tool.setuptools.package-data]
 jlens = ["data/*"]

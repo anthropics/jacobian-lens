@@ -79,6 +79,22 @@ slices and combining with `JacobianLens.merge()`.
 model, load (or fit) a lens, apply it at a few layers, and render a slice page
 like the one above.
 
+The prompt-injection guard research pipeline lives in
+[`notebooks/01_jlens_prompt_injection_guard.ipynb`](notebooks/01_jlens_prompt_injection_guard.ipynb).
+It validates the five security splits, fits or resumes a generic-corpus lens,
+freezes a calibration-only guard threshold, evaluates validation and test, and
+demonstrates enforcement through a side-effect-free mock tool registry. Install
+the notebook dependencies and open it with:
+
+```bash
+pip install -e ".[research]"
+jupyter lab notebooks/01_jlens_prompt_injection_guard.ipynb
+```
+
+Each run is self-contained under `artifacts/runs/<run-name>/`. Set
+`JLENS_NOTEBOOK_SMOKE=1` before launching Jupyter to exercise the complete
+protocol quickly with Qwen 0.5B and balanced nine-sample subsets.
+
 Reading a slice page:
 
 - Each cell shows the lens top-1 word at that (position, layer); the

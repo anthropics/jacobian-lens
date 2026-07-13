@@ -98,6 +98,21 @@ def test_fit_and_apply_tiny(tmp_path):
         model, "hello world test", layers=[1], positions=[-1], use_jacobian=False
     )
     assert baseline[1].shape == (1, vocab_size)
+
+    compared_jlens, compared_logit, compared_model, compared_ids = (
+        reloaded.apply_comparison(
+            model,
+            "hello world test",
+            layers=[1],
+            positions=[-1],
+        )
+    )
+    assert compared_ids.shape[1] > 0
+    torch.testing.assert_close(compared_jlens[1], reloaded.apply(
+        model, "hello world test", layers=[1], positions=[-1]
+    )[0][1])
+    torch.testing.assert_close(compared_logit[1], baseline[1])
+    assert compared_model.shape == (1, vocab_size)
     # Unfitted layer is rejected.
     with pytest.raises(ValueError, match="not in source_layers"):
         reloaded.apply(model, "x" * 30, layers=[3])
