@@ -26,6 +26,7 @@ from __future__ import annotations
 import logging
 import math
 import os
+import platform
 import time
 from collections.abc import Sequence
 
@@ -106,6 +107,7 @@ def jacobian_for_prompt(
     dim_batch: int = 8,
     max_seq_len: int = 128,
     skip_first: int = SKIP_FIRST_N_POSITIONS,
+    single_thread_backward: bool | None = None,
 ) -> tuple[dict[int, torch.Tensor], int, int]:
     """Compute the per-layer Jacobian estimator ``J_l`` for one prompt.
 
@@ -174,6 +176,15 @@ def jacobian_for_prompt(
         batch_indices = torch.arange(dim_batch, device=target_activation.device)
         cotangent = torch.zeros_like(target_activation)
 
+        # Windows: the autograd engine runs backward on a per-GPU worker thread that can
+        # lack the current CUDA context, deadlocking across the many autograd.grad calls
+        # below. Serialize the backward there. Default None -> auto-enable on Windows.
+        if single_thread_backward is None:
+            single_thread_backward = platform.system() == "Windows"
+        _prev_mt = torch.autograd.is_multithreading_enabled()
+        if single_thread_backward:
+            torch.autograd.set_multithreading_enabled(False)
+
         for pass_idx, dim_start in enumerate(range(0, d_model, dim_batch)):
             n_dims_this_pass = min(dim_batch, d_model - dim_start)
             # One-hot cotangent at dim (dim_start + b) for batch element b,
@@ -210,6 +221,8 @@ def jacobian_for_prompt(
                     dim_start + n_dims_this_pass,
                 )
 
+    if single_thread_backward:
+        torch.autograd.set_multithreading_enabled(_prev_mt)
     return jacobians, seq_len, n_valid_positions
 
 
@@ -233,6 +246,7 @@ def fit(
     checkpoint_path: str | None = None,
     checkpoint_every: int | None = 1,
     resume: bool = True,
+    single_thread_backward: bool | None = None,
 ) -> JacobianLens:
     """Fit ``J_l`` over a list of prompts and return a :class:`JacobianLens`.
 
@@ -340,6 +354,7 @@ def fit(
                 dim_batch=dim_batch,
                 max_seq_len=max_seq_len,
                 skip_first=skip_first,
+                single_thread_backward=single_thread_backward,
             )
         except ValueError as exc:
             logger.warning("  skipping prompt %d: %s", prompt_idx, exc)
