@@ -105,7 +105,7 @@ if total_gb < min_gb:
         f"{total_gb:.1f} GiB of VRAM is below the {min_gb:.0f} GiB needed for "
         f"JLENS_PRECISION={precision}.\n"
         "Either destroy and relaunch on a bigger card, or re-run with "
-        "JLENS_PRECISION=nf4 (needs ~32 GiB).",
+        "JLENS_PRECISION=nf4 (needs ~18 GiB) or int8 (~22 GiB).",
         file=sys.stderr,
     )
     raise SystemExit(1)
@@ -237,7 +237,7 @@ touch "$READY_FILE"
 cat <<EOF
 
 Dashboard listening on 127.0.0.1:7860 (pid $(cat "$PID_FILE")).
-The model is still loading (~15 min); /status reports progress, the page polls it,
+The model is still loading; /status reports progress, the page polls it,
 and /run answers 503 until it is ready.
 
   app log        tail -f $APP_LOG

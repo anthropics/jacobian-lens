@@ -70,8 +70,30 @@ Two consequences worth holding on to:
 - The flood band defaults here are `18..44`, not `main`'s `24..58`. Both are the same
   ~38-92% slice of depth; the absolute numbers move with the layer count.
 - A band is a *subset of the fitted layers*, not a contiguous range of model layers. Ask
-  for `18..44` and you get the 14 fitted layers inside it, unevenly spaced. The middle
-  visual's columns are those 14, so neighbouring columns are not neighbouring layers.
+  for `18..44` and you get the 14 fitted layers inside it — `19, 21, 22, 24, 26, 28, 30,
+  32, 34, 36, 38, 39, 41, 43` — unevenly spaced. The middle visual's columns are those
+  14, so neighbouring columns are not neighbouring layers. The caption says so (that
+  disclosure is on `main`, and stays silent for a densely fitted lens), and hovering a
+  column names its real model layer.
+
+**Verified without renting anything**, on 2026-09-23, against the lens's own
+`seed0.pt.meta.json` and `transformers==5.10.1`:
+
+- the fitted layers and target above are the lens's `source_layers` / `target_layer`
+  verbatim; `d_model` 3840, `n_layers` 48 and `Gemma4UnifiedForConditionalGeneration`
+  all agree between the lens metadata and the model config;
+- the lens was fitted in `bfloat16`, against model revision `707f0a3b…`, which is now
+  pinned in `JLENS_MODEL_REVISION`;
+- layout resolution works: built on a meta device, the model resolves to
+  `Layout("model.language_model")` and reports `48 layers · d_model 3840` — the
+  dashboard's status line. No new `Layout` entry was needed. The recipe is step 4 of
+  `MODEL-BRANCHES.md`'s pre-spend checklist.
+
+**Not yet verified — needs one real provision.** The `MIN_VRAM_GB=36` bf16 floor rests
+on an *inferred* lens-resident figure (703MiB file assumed to roughly double, following
+`main`'s 3.3GB-file/6.6GB-resident precedent); read the `VRAM peak` the dashboard prints
+and correct the floor if the headroom is wrong. The cost table below and the 8-20 minute
+setup window are likewise unmeasured for this branch.
 
 ## Usage
 
@@ -187,6 +209,10 @@ numbers, for a 120GB disk and `gpu_ram >= 45`. This branch rents a 60GB disk and
 figures to come in at or below these. Run `./provision.sh` and read the printed table;
 it is the only current source. They move daily in any case.
 
+Re-measuring needs a vast.ai API key, the `vastai` CLI and an SSH key. Whoever has all
+three: run `./provision.sh`, stop at the confirmation prompt if you only want the table,
+and replace this section.
+
 | card | VRAM | $/hr with storage |
 |---|---|---|
 | RTX A6000 | 48GB | 0.433 |
@@ -194,8 +220,8 @@ it is the only current source. They move daily in any case.
 | RTX 4090 | 48GB | 0.578 |
 
 Cheaper cards exist. An A40 at $0.281/hr shows up on a looser search. The filter in
-`provision.sh` excludes some of them on purpose: it requires at least 16GB of usable host
-RAM, Ampere or newer, an allow-listed GPU name, decent download speed, and cheap
+`provision.sh` excludes some of them on purpose: it requires at least 12GB of usable host
+RAM (`MIN_RAM_MB`, lowered from `main`'s figure with the single-shard checkpoint), Ampere or newer, an allow-listed GPU name, decent download speed, and cheap
 bandwidth. A host that charges $20/TB for downloads adds about half a dollar to the 25GB
 of model and lens here — a smaller penalty than on `main`, where the same host costs over
 a dollar against 59GB.
