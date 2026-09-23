@@ -62,7 +62,7 @@ SSH_OPTS=(-i "$SSH_KEY" -o "UserKnownHostsFile=$KNOWN_HOSTS" -o StrictHostKeyChe
   -o BatchMode=yes -o ConnectTimeout=15 -o LogLevel=ERROR)
 
 echo
-echo "instance is up after $(( ($(date +%s) - T0) / 60 )) min of polling. Waiting for bootstrap (15-35 min)..."
+echo "instance is up after $(( ($(date +%s) - T0) / 60 )) min of polling. Waiting for bootstrap (8-20 min)..."
 while :; do
   STATE="$(ssh "${SSH_OPTS[@]}" -p "$SSH_PORT" "root@$SSH_HOST" \
     'if [ -f /workspace/.jlens/READY ]; then echo ready; elif [ -f /workspace/.jlens/FAILED ]; then echo failed; cat /workspace/.jlens/FAILED; else tail -n 1 /var/log/portal/jlens-bootstrap.log 2>/dev/null || echo starting; fi' 2>/dev/null \

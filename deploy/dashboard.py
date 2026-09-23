@@ -30,10 +30,10 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO, "experiments", "flood"))
 from run import measure, wordlike_mask  # noqa: E402 - needs the sys.path line above
 
-MODEL_ID = os.environ.get("JLENS_MODEL_ID", "Qwen/Qwen3.8-27B")
-LENS_REPO = os.environ.get("JLENS_LENS_REPO", "eyes-ml/Qwen3.8-27B_jacobian-lens")
-LENS_FILE = os.environ.get("JLENS_LENS_FILE", "Qwen3.8-27B_jacobian_lens.pt")
-PRECISION = os.environ.get("JLENS_PRECISION", "nf4")
+MODEL_ID = os.environ.get("JLENS_MODEL_ID", "google/gemma-4-12B-it")
+LENS_REPO = os.environ.get("JLENS_LENS_REPO", "lamm-mit/gemma4-jacobian-lenses")
+LENS_FILE = os.environ.get("JLENS_LENS_FILE", "gemma4-12b-it/paper/seed0.pt")
+PRECISION = os.environ.get("JLENS_PRECISION", "bf16")
 FLOOD_ITEMS = os.path.join(REPO, "experiments", "flood", "items.jsonl")
 FLOOD_OUT = os.environ.get("JLENS_FLOOD_OUT", "/workspace/flood-results.jsonl")
 
@@ -194,7 +194,7 @@ def _load() -> None:
 def _generate(context_token_ids: list[int], n_new: int, top_n: int) -> dict:
     """Greedy-decode ``n_new`` tokens from the exact ids the slice used, and
     return the continuation plus the top-``top_n`` next-token distribution at
-    the last prompt position. This is what the L63 row is predicting, with
+    the last prompt position. This is what the L47 row is predicting, with
     probabilities, and unmasked (mask_display hides non-word tokens there)."""
     import torch
 
@@ -405,8 +405,8 @@ def flood_start(req: dict = Body(...)) -> JSONResponse:
             return default
 
     fitted = _lens.source_layers
-    lo = clamp("band_lo", 24, min(fitted), max(fitted))
-    hi = clamp("band_hi", 58, min(fitted), max(fitted))
+    lo = clamp("band_lo", 18, min(fitted), max(fitted))
+    hi = clamp("band_hi", 44, min(fitted), max(fitted))
     positions = clamp("positions", 6, 1, 8)
     gen = clamp("gen", 12, 1, 32)
     band = [l for l in fitted if lo <= l <= hi]
@@ -572,8 +572,8 @@ canvas{display:block}
 <section>
   <h2>FLOOD SUITE</h2>
   <div class=row>
-    <label>band_lo <input type=number id=band_lo value=24></label>
-    <label>band_hi <input type=number id=band_hi value=58></label>
+    <label>band_lo <input type=number id=band_lo value=18></label>
+    <label>band_hi <input type=number id=band_hi value=44></label>
     <label>positions <input type=number id=positions value=6 min=1 max=8></label>
     <label>gen <input type=number id=gen value=12 min=1 max=32></label>
     <button id=flood_go disabled>start flood</button>
@@ -604,11 +604,11 @@ EX.forEach(t => {
   b.onclick = () => { $('prompt').value = t; };
   $('examples').appendChild(b);
 });
-// The final row (L63) is the model's own output, not a lens readout: it is the
+// The final row (L47) is the model's own output, not a lens readout: it is the
 // sanity check that the NF4 quantization has not drifted the lens off.
 let busy = false;
 // Greedy continuation, highlighted after the dimmed prompt, then the top next-token
-// probabilities at the last position: the distribution the L63 row is showing top-1 of.
+// probabilities at the last position: the distribution the L47 row is showing top-1 of.
 function showOutput(prompt, o) {
   const box = $('output');
   if (!o) { box.style.display = 'none'; return; }

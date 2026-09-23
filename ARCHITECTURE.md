@@ -50,7 +50,7 @@ flowchart LR
         BO["bootstrap.sh: venv, deps, model + lens download"]
         DA["dashboard.py  (uvicorn on 127.0.0.1:7860)"]
         RU["experiments/flood/run.py"]
-        GPU[("Qwen3.8-27B in NF4 + 63 J matrices, ~23GB")]
+        GPU[("gemma-4-12B-it in bf16 + 25 J matrices, ~26GB")]
     end
     PR -->|"create, wait for ssh"| BO
     BO --> DA
@@ -152,17 +152,18 @@ Above the iframe. The prompt in grey, then the greedy continuation of `gen_token
 tokens highlighted, special tokens left visible. Below it, the top `top_n` next-token
 candidates at the last prompt position with probabilities.
 
-The panel and the L63 row show the same distribution, differently. L63 shows its top-1,
+The panel and the L47 row show the same distribution, differently. L47 shows its top-1,
 masked to word-like tokens. The panel is unmasked and has probabilities, so it tells a
 confident answer from a coin flip, and it shows when a punctuation or space token
-actually wins. If the panel says `euro 71%` and the L63 cell says `euro¹`, they agree.
+actually wins. If the panel says `euro 71%` and the L47 cell says `euro¹`, they agree.
 If the panel says `the 34%, a 22%` and the grid has an intermediate at rank 1 in the
 band, the model knows something it is not committing to.
 
 ### 4.3 The quantization check
 
-The lens was fitted on the bf16 model; the instance serves NF4. If L63 looks sane and
-the rows just above it do not, suspect that drift before the model. If L63 is also
+The lens was fitted on the bf16 model and this branch serves bf16, so there is no
+quantization drift to discount. If L47 looks sane and the rows just above it do not,
+suspect the lens before the model. If L47 is also
 garbage, the prompt or tokenization is wrong. Prefer claims about ordering across
 layers to claims about any single rank.
 

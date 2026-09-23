@@ -28,15 +28,16 @@ DEPLOY_DIR="$REPO_ROOT/deploy"
 
 # Exported under the names dashboard.py reads, so the pre-download and the server
 # cannot end up pointed at different repos.
-export JLENS_MODEL_ID="${JLENS_MODEL_ID:-Qwen/Qwen3.8-27B}"
-export JLENS_LENS_REPO="${JLENS_LENS_REPO:-eyes-ml/Qwen3.8-27B_jacobian-lens}"
-export JLENS_LENS_FILE="${JLENS_LENS_FILE:-Qwen3.8-27B_jacobian_lens.pt}"
-# A lens is fitted against one checkpoint revision, recorded in the lens's own
-# .meta.json as model_revision. Pin it here and an upstream re-upload cannot
-# silently put a lens and a model out of step. Empty means "whatever main is".
-export JLENS_MODEL_REVISION="${JLENS_MODEL_REVISION:-}"
+export JLENS_MODEL_ID="${JLENS_MODEL_ID:-google/gemma-4-12B-it}"
+export JLENS_LENS_REPO="${JLENS_LENS_REPO:-lamm-mit/gemma4-jacobian-lenses}"
+export JLENS_LENS_FILE="${JLENS_LENS_FILE:-gemma4-12b-it/paper/seed0.pt}"
+# The revision seed0.pt was fitted against, read from its own .pt.meta.json
+# (model.model_revision). Pinned so an upstream re-upload of google/gemma-4-12B-it
+# cannot silently put the lens and the served model out of step - this branch's
+# whole claim is that there is no lens/model drift to caveat.
+export JLENS_MODEL_REVISION="${JLENS_MODEL_REVISION:-707f0a3b8a3c7ad586ed01e27eafbad8a27dd0f7}"
 
-export JLENS_PRECISION="${JLENS_PRECISION:-nf4}"
+export JLENS_PRECISION="${JLENS_PRECISION:-bf16}"
 export HF_HOME="${HF_HOME:-/workspace/hf}"
 export HF_XET_HIGH_PERFORMANCE=1   # hf_transfer is gone in huggingface_hub 1.x; this replaces it
 export HF_HUB_DISABLE_TELEMETRY=1
@@ -65,11 +66,12 @@ command -v python >/dev/null || die "no python on PATH after venv activation"
 echo "python: $(python -V) at $(command -v python)"
 
 # ---------------------------------------------------------------- GPU preflight
-# Fail before downloading 56GB if the card cannot hold the model.
+# Fail before downloading 24GB if the card cannot hold the model.
+# 11,959,730,224 params. The lens file is 703MiB and roughly doubles resident (~1.5GB).
 case "$JLENS_PRECISION" in
-  nf4)  MIN_VRAM_GB=32 ;;   # ~18GB weights + 6.6GB lens + transients
-  int8) MIN_VRAM_GB=44 ;;   # ~30GB weights + 6.6GB lens + transients
-  bf16) MIN_VRAM_GB=72 ;;   # ~56GB weights; 80GB card only
+  nf4)  MIN_VRAM_GB=18 ;;   # ~8GB weights + 1.5GB lens + transients
+  int8) MIN_VRAM_GB=22 ;;   # ~13GB weights + 1.5GB lens + transients
+  bf16) MIN_VRAM_GB=36 ;;   # ~24GB weights + 1.5GB lens; fits a 48GB card, unlike Qwen
   *)    die "JLENS_PRECISION must be one of nf4|int8|bf16 (got '$JLENS_PRECISION')" ;;
 esac
 

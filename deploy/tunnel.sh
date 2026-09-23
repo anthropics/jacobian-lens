@@ -76,7 +76,7 @@ SSH_OPTS=(-i "$SSH_KEY"
 
 if [ "$MODE" = logs ]; then
   # bootstrap.sh tees install and download progress to jlens-bootstrap.log, which is the
-  # only log with anything in it during the 15-35 min setup window. Tail all three.
+  # only log with anything in it during the 8-20 min setup window. Tail all three.
   echo "tailing /var/log/portal/jlens-{setup,bootstrap,app}.log on $INSTANCE_ID - Ctrl-C to stop"
   exec ssh -t "${SSH_OPTS[@]}" -p "$SSH_PORT" "root@$SSH_HOST" \
     'tail -n 50 -F /var/log/portal/jlens-setup.log /var/log/portal/jlens-bootstrap.log /var/log/portal/jlens-app.log'
@@ -87,13 +87,13 @@ if (exec 3<>"/dev/tcp/127.0.0.1/$LOCAL_PORT") 2>/dev/null; then
   die "local port $LOCAL_PORT is already in use (another tunnel?). Re-run with --port 7861."
 fi
 
-# "running" only means the container is up. bootstrap.sh then spends 15-35 min installing
-# and pulling ~56GB, and -L binds locally whether or not anything listens on the far end,
+# "running" only means the container is up. bootstrap.sh then spends 8-20 min installing
+# and pulling ~24GB, and -L binds locally whether or not anything listens on the far end,
 # so probe the remote port before promising the user a working URL.
 if ! ssh "${SSH_OPTS[@]}" -p "$SSH_PORT" "root@$SSH_HOST" \
      "timeout 2 bash -c '</dev/tcp/127.0.0.1/$REMOTE_PORT'" 2>/dev/null; then
   echo "the dashboard is not listening yet - bootstrap is probably still installing and"
-  echo "downloading (15-35 min from launch). Watch it with: $0 --logs"
+  echo "downloading (8-20 min from launch). Watch it with: $0 --logs"
   echo "Opening the tunnel anyway; reload the page once the log prints 'server started'."
   echo
 fi

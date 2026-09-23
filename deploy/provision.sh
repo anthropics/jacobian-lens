@@ -16,11 +16,11 @@ REPO_URL="https://github.com/Nathan2589/jacobian-lens"
 # should not silently rent a card sized for main's Qwen config.
 BRANCH="${JLENS_BRANCH:-$(git -C "$DEPLOY_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)}"
 IMAGE="${JLENS_IMAGE:-vastai/pytorch:2.9.1-cu128-cuda-12.9-mini-py311-2026-08-21}"
-DISK_GB=120
+DISK_GB=60
 SSH_KEY="${JLENS_SSH_KEY:-$HOME/.ssh/id_ed25519}"
 VASTAI="${VASTAI:-$HOME/.local/bin/vastai}"
 CREDIT_FLOOR="${JLENS_CREDIT_FLOOR:-2}"
-MIN_RAM_MB=16000    # host RAM the bootstrap needs: ~10GB lens + ~5GB shard loading
+MIN_RAM_MB=12000    # host RAM the bootstrap needs: ~1.5GB lens + single-shard loading
 READY_TIMEOUT=900   # seconds to wait for the container to reach "running"
 PORTS_GRACE=120     # seconds to wait for the direct port map before using the proxy
 SSH_TIMEOUT=300     # seconds to wait for sshd after that
@@ -130,7 +130,7 @@ fi
 # ---------------------------------------------------------------- offers
 # inet_down_cost is $/GB (there is no internet_down_cost_per_tb search key - the
 # server rejects it with a 400 that the CLI prints to stdout and exits 0 on).
-QUERY='gpu_ram >= 45 num_gpus=1 rentable=true reliability > 0.98 disk_space >= 200 compute_cap >= 800 cuda_max_good >= 12.4 direct_port_count >= 2 inet_down_cost < 0.02 inet_down >= 300 dph_total < 0.70'
+QUERY='gpu_ram >= 40 num_gpus=1 rentable=true reliability > 0.98 disk_space >= 100 compute_cap >= 800 cuda_max_good >= 12.4 direct_port_count >= 2 inet_down_cost < 0.02 inet_down >= 300 dph_total < 0.70'
 
 # gpu_ram/cpu_ram come back in units of 1000 (vast's own offers_mult), not 1024.
 # Effective container RAM is cpu_ram * gpu_frac. The gpu_name allow-list keeps out
@@ -321,7 +321,7 @@ trap - EXIT INT TERM
 cat <<EOF
 
 instance $INSTANCE_ID is up. bootstrap.sh is now installing and downloading
-the model (~56GB) in the background; expect 15-35 minutes before the dashboard answers.
+the model (~24GB) in the background; expect 8-20 minutes before the dashboard answers.
 Nothing listens on port 7860 until that finishes - watch the log first.
 
   watch setup:   $DEPLOY_DIR/tunnel.sh --logs

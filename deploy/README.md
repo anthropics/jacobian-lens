@@ -1,5 +1,8 @@
 # deploy: J-lens dashboard on a rented GPU
 
+> **Branch `model/gemma-4-12b-it`** — serves `google/gemma-4-12B-it`. `main` serves
+> `Qwen/Qwen3.8-27B`. One model per branch; see `MODEL-BRANCHES.md` on `main`.
+
 Rent a GPU on vast.ai, serve the Jacobian lens dashboard on it, reach it from your
 laptop over an SSH tunnel at `http://localhost:7860`.
 
@@ -19,44 +22,56 @@ Four scripts, in order:
 visualisation. Above the slice it shows the model's own output: a greedy
 continuation of `gen_tokens` tokens (default 32, `0` to skip) decoded from the same
 token ids the slice used, and the top-`top_n` next-token probabilities at the last
-prompt position. The L63 row shows the top-1 of that distribution, masked to
+prompt position. The L47 row shows the top-1 of that distribution, masked to
 word-like tokens; the panel shows it unmasked, with probabilities. It binds to
 `127.0.0.1` on the instance, so it is reachable through the tunnel and invisible to
 the public internet.
 
-**No model weights are ever downloaded to your laptop.** The 56GB checkpoint and the
-3.3GB lens are fetched by the instance, from the instance. Your laptop only moves
+**No model weights are ever downloaded to your laptop.** The 24GB checkpoint and the
+703MiB lens are fetched by the instance, from the instance. Your laptop only moves
 JSON and HTML over SSH.
 
 ## Why this model and this lens
 
-Fitting a lens for a 27B model costs about 24 H100-hours. That is far outside the
-budget here. A lens for `Qwen/Qwen3.8-27B` is already published at
-`eyes-ml/Qwen3.8-27B_jacobian-lens`, so we apply a published lens rather than fit our
-own. The app log prints the lens's own `n_prompts` when it loads.
+Fitting a lens costs real H100-hours, so we apply a published one rather than fit our
+own. The lens for `google/gemma-4-12B-it` is at `lamm-mit/gemma4-jacobian-lenses`, file
+`gemma4-12b-it/paper/seed0.pt`. The app log prints the lens's own `n_prompts` when it
+loads.
 
-This page describes `main`, which serves Qwen. **Serving a different model is a
-different git branch, not a different set of environment variables** — the VRAM floors,
-the offer filter, the flood band defaults and the `L63` convention all move with the
-model. [`MODEL-BRANCHES.md`](MODEL-BRANCHES.md) is the policy: what a model branch may
-change, how it stays rebased on `main`, and the checklist for adding one.
+**This branch serves bf16, and that is the point of it.** 12B in bf16 is ~24GB of
+weights plus ~1.5GB of lens, which fits the same 48GB card class the project already
+rents. `main` cannot do this: Qwen3.8-27B in bf16 is 56GB and needs an 80GB card that is
+outside the budget, which is why `main` quantizes to NF4 and carries an uncorrected
+drift between a bf16-fitted lens and an NF4-served model. **Here there is no
+quantization drift to caveat.** The lens was fitted in bf16 and is read against a bf16
+model.
 
-**The honest caveat.** That lens was fitted against the model in bf16. We serve the
-model quantized to NF4 so it fits on a 48GB card. Reading a quantized model through a
-bf16-fitted lens introduces drift, and nothing here corrects for it. Treat the lens
-rows as indicative, not exact.
+This page describes `model/gemma-4-12b-it`. **Serving a different model is a different
+git branch, not a different set of environment variables** — the VRAM floors, the offer
+filter, the flood band defaults and the final-row convention all move with the model.
+[`MODEL-BRANCHES.md`](MODEL-BRANCHES.md) is the policy: what a model branch may change,
+how it stays rebased on `main`, and the checklist for adding one.
 
-The built-in check is the **final row, L63**. Layer 63 is not in the lens, so jlens
-skips transport for it and that row is the model's true output. If L63 looks sane and
-the rows below it do not, suspect quantization drift before you suspect the model.
+The built-in check is still the **final row, L47**. This model has 48 layers, so layer
+47 is not in the lens, jlens skips transport for it, and that row is the model's true
+output. If L47 looks sane and the rows below it do not, suspect the lens before the
+model.
 
-`JLENS_PRECISION=bf16` removes the drift entirely, but 56GB of weights only fits an
-80GB card: the offer filter in `provision.sh` would have to be widened (`gpu_ram >= 78`,
-and `dph_total` raised well past 0.70), and an 80GB card is outside the $15 budget.
-`JLENS_PRECISION=int8` is the middle option at roughly 30GB, though its preflight wants
-44GB of VRAM, so it is marginal on a 45GB card and safe on a 48GB one. On a card that is
-too small for the precision you asked for, the bootstrap refuses to start before it
+`JLENS_PRECISION=nf4` (~18GB of VRAM) and `int8` (~22GB) are still available and open up
+much cheaper cards, at the cost of reintroducing the drift `main` has to live with. On a
+card too small for the precision you asked for, the bootstrap refuses to start before it
 downloads anything.
+
+**What is different about this lens.** It has **25 fitted layers, and they are sparse**:
+`0, 2, 4, 6, 8, 9, 11, 13, 15, 17, 19, 21, 22, 24, 26, 28, 30, 32, 34, 36, 38, 39, 41, 43,
+45`, transporting to a target layer of 46. `main`'s Qwen lens has 63 contiguous layers.
+Two consequences worth holding on to:
+
+- The flood band defaults here are `18..44`, not `main`'s `24..58`. Both are the same
+  ~38-92% slice of depth; the absolute numbers move with the layer count.
+- A band is a *subset of the fitted layers*, not a contiguous range of model layers. Ask
+  for `18..44` and you get the 14 fitted layers inside it, unevenly spaced. The middle
+  visual's columns are those 14, so neighbouring columns are not neighbouring layers.
 
 ## Usage
 
@@ -84,8 +99,8 @@ cd deploy
 ```
 
 `provision.sh` returns once sshd is up, but the instance is still installing and
-downloading. **Nothing listens on port 7860 until that finishes**, so for the first 15 to
-35 minutes there is no dashboard to load: a browser pointed at `localhost:7860` gets a
+downloading. **Nothing listens on port 7860 until that finishes**, so for the first 8 to
+20 minutes there is no dashboard to load: a browser pointed at `localhost:7860` gets a
 connection error, not a loading page. Watch the setup instead, and open the tunnel once
 the log prints `server started`.
 
@@ -118,11 +133,12 @@ scripts read it from there, so you rarely need to pass an id by hand.
 ### Changing precision
 
 `provision.sh` does not pass `JLENS_PRECISION` to the instance, so a fresh instance is
-always `nf4`. To change it, SSH in and re-run the bootstrap. It is idempotent: it
+always `bf16` on this branch. To change it, SSH in and re-run the bootstrap. It is
+idempotent: it
 skips the install and the downloads, and restarts the server.
 
 ```bash
-JLENS_PRECISION=int8 bash /workspace/jacobian-lens/deploy/bootstrap.sh
+JLENS_PRECISION=nf4 bash /workspace/jacobian-lens/deploy/bootstrap.sh
 ```
 
 It refuses to start if the card is too small for the precision you asked for, before
@@ -165,8 +181,11 @@ page when you want to watch the tier curves form.
 
 Credit at time of writing: **$18.47**. Design target: stay under $15.
 
-Rates below include 120GB of storage and are what the offer filter returned on one
-search. They move daily.
+**The rates below have not been re-measured for this branch.** They are `main`'s
+numbers, for a 120GB disk and `gpu_ram >= 45`. This branch rents a 60GB disk and accepts
+`gpu_ram >= 40`, so both the storage component and the card mix differ — expect the real
+figures to come in at or below these. Run `./provision.sh` and read the printed table;
+it is the only current source. They move daily in any case.
 
 | card | VRAM | $/hr with storage |
 |---|---|---|
@@ -177,15 +196,16 @@ search. They move daily.
 Cheaper cards exist. An A40 at $0.281/hr shows up on a looser search. The filter in
 `provision.sh` excludes some of them on purpose: it requires at least 16GB of usable host
 RAM, Ampere or newer, an allow-listed GPU name, decent download speed, and cheap
-bandwidth. A host that charges $20/TB for downloads adds over a dollar to the 59GB of
-model and lens.
+bandwidth. A host that charges $20/TB for downloads adds about half a dollar to the 25GB
+of model and lens here — a smaller penalty than on `main`, where the same host costs over
+a dollar against 59GB.
 
 At $0.433/hr:
 
 | | time | cost |
 |---|---|---|
-| one-off setup, per instance | 15 to 35 min | $0.11 to $0.25 |
-| setup plus an hour of use | ~1.4 hr | ~$0.61 |
+| one-off setup, per instance | 8 to 20 min | $0.06 to $0.14 |
+| setup plus an hour of use | ~1.25 hr | ~$0.54 |
 | the $15 target buys | ~34 hr | $15 |
 | all $18.47 of credit buys | ~42 hr | $18.47 |
 
@@ -251,11 +271,11 @@ changed key, delete that file and try again.
 ## Troubleshooting
 
 **Browser says connection refused or reset.** The server has not started yet. Expected
-for the first 15 to 35 minutes: see the note under Usage. `./tunnel.sh --logs` shows
+for the first 8 to 20 minutes: see the note under Usage. `./tunnel.sh --logs` shows
 which stage is running.
 
 **Setup seems stuck.** Watch it: `./tunnel.sh --logs`. The two long stages are the model
-download and the NF4 quantize, and both print timings. The full bootstrap transcript is
+download and the load onto the card, and both print timings. The full bootstrap transcript is
 at `/var/log/portal/jlens-bootstrap.log` on the instance. `provision.sh --status` shows
 what vast.ai thinks the instance is doing.
 
@@ -273,7 +293,7 @@ vast.ai's side.
 **CUDA out of memory.** The dashboard catches this and says so rather than dying.
 Lower `max_seq_len` or raise `layer_stride` in the form and run again. The expensive
 combination is 512 tokens at stride 1, which is two full-vocab sorts on every one of
-64 rows. If it happens at the defaults, the card is smaller than the offer claimed:
+48 rows. If it happens at the defaults, the card is smaller than the offer claimed:
 check the VRAM line in the app log.
 
 **Tunnel port in use.** `tunnel.sh` checks the port before connecting and tells you.
