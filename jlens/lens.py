@@ -51,11 +51,34 @@ class JacobianLens:
 
     def save(self, path: str, *, dtype: torch.dtype = torch.float16) -> None:
         """Save to ``path``. Jacobians are stored as ``dtype`` (default fp16:
-        halves file size; entries are O(1) so the range is not a constraint
-        and fp16's extra mantissa bits beat bf16 here)."""
+        halves file size; entries are usually O(1), and fp16's extra mantissa
+        bits beat bf16 here).
+
+        Raises:
+            ValueError: If casting a Jacobian to ``dtype`` would turn a
+                finite entry non-finite (a magnitude above 65,504 does so
+                for the default fp16). Saving anyway would silently corrupt
+                the lens, so nothing is written; pass a wider ``dtype``
+                such as ``torch.float32`` to store such a lens. Entries
+                that are already non-finite are stored as they are: only
+                corruption introduced by the cast itself is refused.
+        """
+        converted: dict[int, torch.Tensor] = {}
+        for layer, J in self.jacobians.items():
+            cast = J.to(dtype)
+            overflowed = torch.isfinite(J) & ~torch.isfinite(cast)
+            if bool(overflowed.any()):
+                raise ValueError(
+                    f"layer {layer}: {int(overflowed.sum())} finite Jacobian "
+                    f"entries would become non-finite when stored as {dtype} "
+                    f"(largest finite magnitude in the layer is "
+                    f"{J.abs().max().item():.6g}); refusing to save a "
+                    f"corrupted lens, pass a wider dtype such as torch.float32"
+                )
+            converted[layer] = cast
         torch.save(
             {
-                "J": {layer: J.to(dtype) for layer, J in self.jacobians.items()},
+                "J": converted,
                 "n_prompts": self.n_prompts,
                 "source_layers": self.source_layers,
                 "d_model": self.d_model,
